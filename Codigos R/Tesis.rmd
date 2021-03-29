@@ -1,0 +1,505 @@
+---
+title: "Tesis"
+author: "Chovi"
+date: "15-03-2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(scales)
+library(dplyr)
+```
+
+
+```{r}
+#Lectura de data
+product <- fread("product.csv")
+demogra <- fread("hh_demographic.csv")
+trx <- fread("transaction_data.csv")
+```
+
+
+#Histograma, número de productos (comodity description) que hay en una boleta, promedio media
+#Histograma, número de productos (comodity description) que hay en una boleta, promedio media
+#Histograma, número de productos (comodity description) que hay en una boleta, promedio media
+
+```{r}
+#Unión de data
+Entera <- merge (product, trx, by = "PRODUCT_ID")
+Entera <- merge(Entera, demogra, by = "household_key")
+Entera
+```
+
+```{r}
+summary(Entera)
+```
+
+```{r}
+#Con los duplicados
+
+ComBas1 <- group_by(Entera, BASKET_ID) %>% tally() 
+ComBas1
+```
+
+```{r}
+#Histograma y BoxPlot de N° de productos que hay en una boleta
+hist(ComBas1$n,
+     breaks = 50 ,
+     col = "darkgray",
+     border = "gray10",
+     main = "Cantidad de productos por boleta",
+     xlab = 'Productos',
+     ylab = 'Frecuencia',
+     xlim = c(0,100),
+     ylim = c(0,160000),
+     labels = T)
+summary(ComBas1$n)
+Atipicos1 <- boxplot(ComBas1$n)
+#Atipicos1$out
+length(Atipicos1$out)
+```
+
+
+
+#Contar para cada categoría cuántos clientes distintos hay, ordenar de mayor a menor clientes le gustan un subconjunto de categoría
+#Contar para cada categoría cuántos clientes distintos hay, ordenar de mayor a menor clientes le gustan un subconjunto de categoría
+#Contar para cada categoría cuántos clientes distintos hay, ordenar de mayor a menor clientes le gustan un subconjunto de categoría
+
+```{r}
+Entera
+```
+
+
+```{r}
+#Selección de columnas a estudiar
+BolCli  <- select(Entera, COMMODITY_DESC, household_key)
+
+#Eliminaación de duplicados
+BolCli <- BolCli[!duplicated(BolCli)]
+
+BolCli
+```
+
+
+
+
+```{r}
+#Se cuenta cuantas veces se repite un dato y se elimina la primera fila ya que son datos en blanco
+BolCli <- group_by(BolCli, COMMODITY_DESC) %>% tally()
+BolCli <- BolCli[-1,]
+Data2 <- group_by(Entera, COMMODITY_DESC) %>% tally()
+Data2 <- Data2[-1,]
+Data2
+BolCli
+```
+
+
+
+
+```{r}
+arrange(Data2, desc(n))
+arrange(BolCli, desc(n))
+```
+
+```{r}
+Atipico <- boxplot(BolCli$n)
+Atipico$out
+length(Atipico$out)
+Atipicos2 <- boxplot(Data2$n)
+Atipicos2$out
+length(Atipicos2$out)
+```
+
+
+
+
+#Contar clientes cuantas categorías distintas compra
+#Contar clientes cuantas categorías distintas compra
+#Contar clientes cuantas categorías distintas compra
+
+```{r}
+Data3 <- select(Entera, -DEPARTMENT, -MANUFACTURER, -BRAND, -CURR_SIZE_OF_PRODUCT, -SUB_COMMODITY_DESC, -PRODUCT_ID, -DAY, -QUANTITY, -SALES_VALUE, -STORE_ID, -RETAIL_DISC, -TRANS_TIME, -WEEK_NO, -COUPON_DISC, -COUPON_MATCH_DISC, -BASKET_ID)
+Data3
+```
+
+```{r}
+#Borrar duplicados, no sirve que el cliente tenga la misma categoría dos veces 
+Data3 <- Data3[!duplicated(Data3)]
+Data3
+```
+
+```{r}
+Data3 <- group_by(Data3, household_key) %>% tally()
+#Data3 <- Data3[-1,]
+Data3
+summary(Data3$n)
+```
+
+```{r}
+plot(x = Data3$household_key,
+     y = Data3$n,
+     main = "Categorías que compra cada cliente",
+     xlab = 'Cliente',
+     ylab = 'Categorías')
+hist(Data3$n,
+     #breaks = 50 ,
+     col = "darkgray",
+     border = "gray10",
+     main = "Cantidad de categorías por cliente",
+     xlab = 'Categorías',
+     ylab = 'Clientes',
+     #xlim = c(0,100),
+     #ylim = c(0,150000),
+     #labels = T
+     )
+Atipicos3 <- boxplot(Data3$n,
+                     main = "Boxplot cantidad de productos distintos")
+Atipicos3$out
+length(Atipicos3$out)
+```
+
+
+
+
+
+
+
+
+#Graficar número de boletas distintas que tiene cada cliente
+#Graficar número de boletas distintas que tiene cada cliente
+#Graficar número de boletas distintas que tiene cada cliente
+
+
+```{r}
+BolCli2  <- select(trx, -QUANTITY, -PRODUCT_ID, -DAY, -QUANTITY, -SALES_VALUE, -STORE_ID, -RETAIL_DISC, -TRANS_TIME, -WEEK_NO, -COUPON_DISC, -COUPON_MATCH_DISC)
+```
+
+```{r}
+BolCli2 <- BolCli2[!duplicated(BolCli2)]
+BolCli2
+```
+
+
+
+```{r}
+BolCli3 <- group_by(BolCli2, household_key) %>% tally() 
+BolCli3
+```
+
+
+```{r}
+plot(x = BolCli3$household_key, 
+     y = BolCli3$n,
+     xlab = 'ClienteID',
+     ylab = 'N° de boletas')
+Atipicos4 <- boxplot(BolCli3$n,
+                     main = "Cantidad de boletas")
+Atipicos4$out
+
+length(Atipicos4$out)
+
+summary(BolCli3$n)
+```
+
+```{r}
+hist(BolCli3$n,
+     #breaks = 50 ,
+     col = "darkgray",
+     border = "gray10",
+     main = "Cantidad de boletas por cliente",
+     xlab = 'Número de Boletas',
+     ylab = 'Clientes',
+     #xlim = c(0,100),
+     #ylim = c(0,150000),
+     #labels = T
+     )
+summary(BolCli3$n)
+
+```
+
+Boxplot para eliminar outlayers
+
+
+```{r}
+BolCli3<-BolCli3[!(BolCli3$n %in% Atipicos4$out),]
+boxplot(BolCli3$n)
+```
+
+```{r}
+BolCli3
+```
+
+
+```{r}
+#Unión de data
+
+NewEntera <- merge(Entera, BolCli3, by = "household_key")
+
+
+```
+
+
+```{r}
+NewEntera <- select(NewEntera, -n)
+```
+
+
+
+
+
+
+#número de boletas distintas que hay para cada categoría
+#número de boletas distintas que hay para cada categoría
+#número de boletas distintas que hay para cada categoría
+
+
+
+
+```{r}
+Data6 <- select(NewEntera, COMMODITY_DESC, BASKET_ID)
+Data6
+```
+
+
+```{r}
+Data6 <- Data6[!duplicated(Data6)]
+Data6
+```
+
+```{r}
+Data6 <- group_by(Data6, COMMODITY_DESC) %>% tally() 
+Data6 <- Data6[-1,]
+Data6
+```
+
+```{r}
+arrange(Data6, n)
+```
+
+
+
+```{r}
+Data6 <- filter(Data6, n>5)
+Data6
+```
+
+
+```{r}
+asd <- boxplot(Data6$n)
+asd$out
+summary(Data6$n)
+```
+
+
+```{r}
+arrange(Data6, desc(n))
+```
+
+```{r}
+NewEntera <- merge(NewEntera, Data6, by = "COMMODITY_DESC")
+NewEntera <- select(NewEntera, -n)
+```
+
+
+
+
+Ctegorías boxplot para outlayers
+
+Limpiar la base de datos 2 de clientes y 1 productos
+Join del monto gastado, dos valores, cuanta plata gasta en la boleta y cuantos commodity_desc(no tomar los mismo) casados compran más que solteros
+analisis desc
+explicar lda
+Codigo de LDA en STAN
+
+
+Análisis de NewEntera
+
+```{r}
+ComBas1 <- group_by(NewEntera, BASKET_ID) %>% tally() 
+ComBas1
+```
+
+```{r}
+hist(ComBas1$n,
+     breaks = 50 ,
+     col = "darkgray",
+     border = "gray10",
+     main = "Cantidad de productos por boleta",
+     xlab = 'Productos',
+     ylab = 'Frecuencia',
+     xlim = c(0,100),
+     ylim = c(0,160000),
+     labels = T)
+summary(ComBas1$n)
+Atipicos1 <- boxplot(ComBas1$n)
+Atipicos1$out
+length(Atipicos1$out)
+```
+
+```{r}
+An1 <- select(NewEntera, BASKET_ID, COMMODITY_DESC)
+An1 <- An1[!duplicated(An1)]
+#
+An2 <- group_by(An1, COMMODITY_DESC) %>% tally()
+An2 <- An2[-1,]
+asd <- boxplot(An2$n)
+An2
+An2$out
+
+```
+
+
+```{r}
+NewEntera
+```
+
+
+
+
+```{r}
+BoletasJuntas <- NewEntera %>% group_by(BASKET_ID) %>%
+        summarise(mean = mean(SALES_VALUE), sum = sum(SALES_VALUE), n = n())
+BoletasJuntas
+```
+
+
+```{r}
+NewEntera1 <- merge(BoletasJuntas, NewEntera, by = "BASKET_ID")
+NewEntera1 <- select(NewEntera1, -n)
+NewEntera1
+```
+
+
+```{r}
+fds <- NewEntera1[, .(number_of_distinct_orders = length(unique(COMMODITY_DESC))), by = NewEntera1$BASKET_ID]
+```
+
+```{r}
+data_count_3 <- data_table[ , .(count = length(unique(x))), by = group]
+
+```
+
+
+```{r}
+asd <- NewEntera1 %>% group_by(BASKET_ID) %>% 
+  summarise(ProducDis = n_distinct(COMMODITY_DESC), mean = mean(), n = n())
+asd
+```
+
+
+```{r}
+Grupo <- NewEntera1 %>% group_by(BASKET_ID) %>% slice(1) %>%
+summarise(n_distinct(COMMODITY_DESC),mean = mean(), sum = sum(sum), n = n())
+
+
+Grupo <- select(Grupo, MARITAL_STATUS_CODE, mean, sum)
+Grupo
+```
+
+```{r}
+#A = Casado
+#B = Soltero
+#U = Desconocido
+
+Grupo <- Grupo %>% group_by(MARITAL_STATUS_CODE) %>%
+        summarise(mean = mean(sum))
+Grupo
+```
+
+
+
+
+```{r}
+#Sacar los duplicados
+NewEntera2 <- select(NewEntera1, COMMODITY_DESC, household_key, MARITAL_STATUS_CODE)
+NewEntera2
+
+```
+
+```{r}
+NewEntera2 <- NewEntera2[!duplicated(NewEntera2),]
+NewEntera2
+```
+
+
+
+```{r}
+
+Grupo1 <- NewEntera2 %>% group_by(MARITAL_STATUS_CODE) %>%
+        count(COMMODITY_DESC)
+        #summarise(mean = mean(sum), sum = sum(sum), n = n())
+Grupo1
+```
+
+
+```{r}
+Grupo2 <- Grupo1 %>% group_by(MARITAL_STATUS_CODE) %>% 
+        summarise(sum=sum(n))
+Grupo2
+```
+
+
+
+#LDA
+#LDA
+#LDA
+
+
+```{stan output.var= asd}
+
+
+
+data {
+  int<lower=2> K;               // num topics
+  int<lower=2> V;               // num words
+  int<lower=1> M;               // num docs
+  int<lower=1> N;               // total word instances
+  int<lower=1,upper=V> w[N];    // word n
+  int<lower=1,upper=M> doc[N];  // doc ID for word n
+  vector<lower=0>[K] alpha;     // topic prior
+  vector<lower=0>[V] beta;      // word prior
+}
+parameters {
+  simplex[K] theta[M];   // topic dist for doc m
+  simplex[V] phi[K];     // word dist for topic k
+}
+model {
+  for (m in 1:M)  
+    theta[m] ~ dirichlet(alpha);  // prior
+  for (k in 1:K)  
+    phi[k] ~ dirichlet(beta);     // prior
+  for (n in 1:N) {
+    real gamma[K];
+    for (k in 1:K) 
+      gamma[k] <- log(theta[doc[n],k]) + log(phi[k,w[n]]);
+    increment_log_prob(log_sum_exp(gamma));  // likelihood
+  }
+}
+```
+
+
+
+
+#Cosas útilies
+
+```{r}
+#Distribucion de dirichlet = familia de distribuciones de probabilidad continuas multivariada, parametrizadas por un vector alfa perteneciente al conjunto de los números reales positivos.
+```
+
+
+
+
+
+```{r}
+#no es necesario
+#Eliminación de columnas que no se utilizan
+
+#DataA <- select(Entera, -DEPARTMENT, -MANUFACTURER, -BRAND, -CURR_SIZE_OF_PRODUCT, -SUB_COMMODITY_DESC, -PRODUCT_ID, -DAY, -QUANTITY, -SALES_VALUE, -STORE_ID, -RETAIL_DISC, -TRANS_TIME, -WEEK_NO, -COUPON_DISC, -COUPON_MATCH_DISC, -household_key)
+#DataA
+```
+
