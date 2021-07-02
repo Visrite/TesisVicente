@@ -1,0 +1,228 @@
+---
+title: "Matrix6m46cli"
+author: "Vicho"
+date: "23-06-2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(arules)
+library(tm)
+library(slam)
+library(dplyr)
+library(tidyverse)
+library(fastDummies)
+
+
+options(scipen=999)
+
+```
+
+```{r}
+#load("Matrxi6m46cli.RData")
+```
+
+```{r}
+Base <- fread("BaseFiltrada.csv")
+Base
+```
+
+#Tiempo
+```{r}
+#Tiempo que se va a filtrar la base para el inicio
+tiempo <- 180 #en dias
+Base <- Base[Base$DAY <= tiempo]
+Base
+```
+
+```{r}
+#categorias se guardan como factor
+retail <- Base %>% 
+  mutate(Categoria = as.factor(COMMODITY_DESC))
+```
+
+
+```{r}
+Boleta <- as.numeric(as.character(retail$BASKET_ID))
+retail <- cbind(retail,Boleta)
+```
+
+
+
+#RFM
+##Recency
+```{r}
+Recency <- unique(Base$household_key) #Crea un listado de clientes en el tiempo determinado
+Recency <- as.data.frame(Recency) #transformacion a dataframe
+Recency <- cbind(Recency, Rec=c(0)) #crear una columna vacía para luego llenarla con el recency
+colnames(Recency) <- c("household_key","Recency")
+
+
+#llenar columna recency, recency = tiempo - "ultimo día que compró el cliente"
+for (i in Recency$household_key) {
+  Fecha <- unique(Base$DAY[Base$household_key == i])
+  Max1 <- max(Fecha)
+  Recen <- 180-Max1
+  aux <- which(Recency$household_key == i)
+  Recency[aux,2] <- Recen
+  
+}
+```
+
+
+
+
+##Numero de boletas
+```{r}
+NuTrx <- Base %>% group_by(household_key) %>%  
+        summarise(NuTrx = n_distinct(BASKET_ID))
+NuTrx
+```
+
+
+
+##Money
+```{r}
+MoneyAux <- Base %>% group_by(BASKET_ID) %>%  
+        summarise(Money = sum(SALES_VALUE))
+Money <- merge(Base, MoneyAux, by = 'BASKET_ID')
+Money <- select(Money, BASKET_ID, Money, household_key)
+Money <- Money %>% group_by(household_key) %>%  slice(1) %>%
+        summarise(Money = mean(Money))
+Money
+
+
+```
+
+
+
+
+```{r}
+
+#Caso único
+
+Base$DAY[Base$household_key == 863]
+```
+
+##Frecuency
+```{r}
+Frecuency <- unique(Base$household_key) #Crea un listado de clientes en el tiempo determinado
+Frecuency <- as.data.frame(Frecuency) #transformacion a dataframe
+Frecuency <- cbind(Frecuency, Rec=c(0)) #crear una columna vacía para luego llenarla con el recency
+colnames(Frecuency) <- c("household_key","Frecuency")
+
+for (i in Frecuency$household_key) {
+  Fechas <- unique(Base$DAY[Base$household_key == i])
+  Max <- max(Fechas)
+  Min <- min(Fechas)
+  Frec <- (Max-Min)/(length(Fechas)-1)
+  aux <- which(Frecuency$household_key == i)
+  Frecuency[aux,2] <- Frec
+  
+}
+```
+
+
+
+
+#Juntar Data
+```{r}
+#Juntar todas las datas en retail
+retail <- merge(retail, Recency, by = "household_key")
+retail <- merge(retail, NuTrx, by = "household_key")
+retail <- merge(retail, Money, by = "household_key")
+retail <- merge(retail, Frecuency, by = "household_key")
+```
+
+
+##Ratio
+```{r}
+RatioRF <- select(retail, household_key, Recency, Frecuency) %>% group_by(household_key) %>%  slice(1) %>%
+        summarise(RatioRF = Recency/Frecuency)
+RatioRF
+
+#juntar la variable que faltaba
+retail <- merge(retail, RatioRF, by = "household_key")
+```
+
+
+```{r}
+colnames(retail)[1] = "Cliente"
+```
+
+
+```{r}
+Todo <- cbind(Data4,dataTheta[,2:15])
+```
+
+```{r}
+Grupo <- Todo %>% group_by(Cleinte) %>%  
+        summarise(Ninos = mean(K1),
+                  Despensa = mean(K2),
+                  Aperitivo = mean(K3),
+                  Desayuno = mean(K4),
+                  Preparados = mean(K5),
+                  Almuerzo = mean(K6),
+                  Freezer = mean(K7),
+                  Americano = mean(K8),
+                  Reposición = mean(K9),
+                  Tentempie = mean(K10),
+                  Baño = mean(K11),
+                  Enfermo = mean(K12),
+                  Cita = mean(K13),
+                  Hogar = mean(K14))
+Grupo <- rename(Grupo, "Cliente" = "Cleinte")
+Grupo
+```
+
+
+
+
+```{r}
+library(plyr)
+```
+
+
+```{r}
+BaseNueva <- join(Grupo, retail, by="Cliente")
+BaseNueva <- BaseNueva %>% group_by(Cliente) %>% slice(1)
+BaseNueva
+```
+
+
+
+```{r}
+BaseNueva <- select(BaseNueva, Cliente, Ninos, Despensa, Aperitivo, Desayuno, Preparados, Almuerzo, Freezer, Americano, Reposición, Tentempie, Baño, Enfermo, Cita, Hogar, AGE_DESC, MARITAL_STATUS_CODE, INCOME_DESC, HOMEOWNER_DESC, HH_COMP_DESC, HOUSEHOLD_SIZE_DESC, KID_CATEGORY_DESC, Recency, NuTrx, Money, Frecuency, RatioRF)
+```
+
+
+```{r}
+colnames(BaseNueva)[16:27]
+```
+
+
+```{r}
+colnames(BaseNueva)[16:27] <- c("Edad","EstadoCivil","Ingreso", "Propietario","ComposicionFamiliar","TamañoFamiliar","NuNiños","Recency","NuTrx","Money","Frecuency","RatioRF")
+```
+
+```{r}
+MatrixFinal <- dummy_cols(BaseNueva, select_columns = colnames(BaseNueva[16:22]))
+MatrixFinal <- select(MatrixFinal, -colnames(MatrixFinal[16:22]))
+```
+
+
+```{r}
+#guarda el archivo como csv
+write.csv(MatrixFinal,"MatrixFinal6m46cli.csv", quote = FALSE, row.names = FALSE)
+```
+
+
+
+```{r}
+save.image(file = "Matrxi6m46cli.RData")
+```
