@@ -1,0 +1,112 @@
+---
+title: "CorrerPrimero"
+author: "Vicho"
+date: "22-05-2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(data.table)
+library(arules)
+library(tm)
+library(slam)
+library(dplyr)
+library(tidyverse)
+library(plyr)
+library(fastDummies)
+
+```
+
+
+```{r}
+Base <- fread("BaseFiltrada.csv")
+Base
+```
+
+
+
+```{r}
+#categorias se guardan como factor
+retail <- Base %>% 
+  mutate(Categoria = as.factor(COMMODITY_DESC))
+```
+
+
+```{r}
+Boleta <- as.numeric(as.character(retail$BASKET_ID))
+retail <- cbind(retail,Boleta)
+```
+
+
+
+```{r}
+Data <- retail[retail$DAY <= 180]
+Data
+```
+
+
+
+
+
+```{r}
+#se guarda solo la boleta y los productos que se compraron en cada boleta
+trans <- ddply(Data,c("Boleta"),
+               function(df1)paste(df1$Categoria,
+                                  collapse = ","))
+```
+
+```{r}
+Data1 <- join(trans, Data, by = "Boleta")
+Data1 <- Data1 %>% group_by(Boleta) %>% slice(1)
+Data1 <- select(Data1, Boleta, V1, household_key)
+```
+
+```{r}
+Data2 <- group_by(Data1, household_key) %>% tally() 
+Data2
+```
+
+```{r}
+Data1 <- merge(Data1, Data2, by = "household_key")
+```
+
+```{r}
+colnames(Data1) <- c("Cleinte","Boleta","items","Nu")
+```
+
+```{r}
+Data3 <- subset(Data1, Nu >= 3)
+```
+
+```{r}
+Data3 <- arrange(Data3, Nu)
+Data3
+```
+
+
+
+```{r}
+#Se saca una muestra de forma manual, contando siempre la totalidad de las boletas de cada cliente
+Data4 <- Data3[1:203,]
+length(unique(Data4$Cleinte))
+```
+
+
+```{r}
+trans <- select(Data4, items)
+colnames(trans) <- c("items")
+
+```
+
+```{r}
+#guarda el archivo como csv
+write.csv(trans,"Canastasxboleta6M46Cli.csv", quote = FALSE, row.names = FALSE)
+```
+
+
+
