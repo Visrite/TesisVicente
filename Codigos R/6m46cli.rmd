@@ -1,0 +1,505 @@
+---
+title: "6M46Cli"
+author: "Vicho"
+date: "21-06-2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(arules)
+library(tm)
+library(slam)
+library(car)
+library(dplyr)
+library(fastDummies)
+```
+
+```{r}
+options(scipen=999)
+```
+
+
+```{r}
+load("LDAManualCorrido6M46Cli.RData")
+```
+
+
+```{r}
+###### PARA LEER LA TABLA CON LDA
+tr <- read.transactions('Canastasxboleta6M46Cli.csv', format = 'basket', sep=',', header = TRUE)
+tr
+summary(tr)
+
+```
+
+
+
+#Muestra
+```{r}
+#muestra de 1000 transacciones, de un total de 89949
+set.seed(1)
+tr_sample <- tr
+
+#muestra como lista (para lda)
+tr_list <- as(tr_sample, "list")
+
+#para lda
+docs <- tr_list #en lda la lista de transacciones corresponderÃÂ­a a los documentos
+#docs <- docs
+#print(docs)
+#save(docs,file="docs_10.Rdata")
+```
+
+
+
+
+```{r}
+#Poner los datos en matrix
+
+t <- as(tr, "matrix") #Commodity en las columnas con su respectiva fila "True, False"
+t <- 1*t #si es "True" = 1, otro caso 0
+NumBol <- dim(t)[1]
+NumProd <- dim(t)[2]
+```
+
+
+
+
+```{r}
+set.seed(1)
+
+
+dtm <- as.DocumentTermMatrix(t, weighting = weightTf)
+
+ind <- row_sums(dtm) == 0 #quitar documentos sin items, son 212
+dtm <- dtm[!ind,]
+
+```
+
+
+
+```{r}
+freq <- col_sums(dtm) #se suman las columnas
+
+freq <- freq[order(freq, decreasing = TRUE)] #se ordenan de mayor a menor (los productos populares quedan primero)
+
+term_count_table <-
+  data.frame(
+    Commodity_desc = names(freq),
+    Count = unname(freq)
+  )
+
+#kable(term_count_table[1:25,]) #Conteo de commodity_desc 
+
+```
+
+
+#LDA Manual
+
+```{r}
+K <- 14 # number of topics
+alpha <- 0.1 # hyperparameter. single value indicates symmetric dirichlet prior. higher=>scatters document clusters
+eta <- .001 # hyperparameter
+iterations <- 10000 # Poner más iteraciones # iterations for collapsed gibbs sampling.  This should be a lot higher than 3 in practice.
+
+```
+
+```{r}
+## Assign WordIDs to each unique word
+vocab <- unique(unlist(docs))
+
+## Replace words in documents with wordIDs
+for(i in 1:length(docs)) docs[[i]] <- match(docs[[i]], vocab)
+```
+
+```{r}
+theta <- array(0, dim=c(length(docs),K,iterations))
+phi <- array(0, dim=c(K,length(vocab),iterations))
+```
+
+
+```{r}
+## 1. Randomly assign topics to words in each doc.  2. Generate word-topic count matrix.
+wt <- matrix(0, K, length(vocab)) # initialize word-topic count matrix
+ta <- sapply(docs, function(x) rep(0, length(x))) # initialize topic assignment list
+for(d in 1:length(docs)){ # for each document
+  for(w in 1:length(docs[[d]])){ # for each token in document d
+    ta[[d]][w] <- sample(1:K, 1) # randomly assign topic to token w.
+    ti <- ta[[d]][w] # topic index
+    wi <- docs[[d]][w] # wordID for token w
+    wt[ti,wi] <- wt[ti,wi]+1 # update word-topic count matrix     
+  }
+}
+```
+
+```{r}
+dt <- matrix(0, length(docs), K)
+for(d in 1:length(docs)){ # for each document d
+  for(t in 1:K){ # for each topic t
+    dt[d,t] <- sum(ta[[d]]==t) # count tokens in document d assigned to topic t   
+  }
+}
+```
+
+
+
+
+```{r}
+t <- proc.time()
+for(i in 1:iterations){ # for each pass through the corpus
+  for(d in 1:length(docs)){ # for each document
+    for(w in 1:length(docs[[d]])){ # for each token 
+      
+      t0 <- ta[[d]][w] # initial topic assignment to token w
+      wid <- docs[[d]][w] # wordID of token w
+      
+      dt[d,t0] <- dt[d,t0]-1 # we don't want to include token w in our document-topic count matrix when sampling for token w
+      wt[t0,wid] <- wt[t0,wid]-1 # we don't want to include token w in our word-topic count matrix when sampling for token w
+      
+      docs
+      ## UPDATE TOPIC ASSIGNMENT FOR EACH WORD -- COLLAPSED GIBBS SAMPLING MAGIC.  Where the magic happens.
+      denom_a <- sum(dt[d,]) + K * alpha # number of tokens in document + number topics * alpha
+      denom_b <- rowSums(wt) + length(vocab) * eta # number of tokens in each topic + # of words in vocab * eta
+      p_z <- (wt[,wid] + eta) / denom_b * (dt[d,] + alpha) / denom_a # calculating probability word belongs to each topic
+      t1 <- sample(1:K, 1, prob=p_z/sum(p_z)) # draw topic for word n from multinomial using probabilities calculated above
+      
+      ta[[d]][w] <- t1 # update topic assignment list with newly sampled topic for token w.
+      dt[d,t1] <- dt[d,t1]+1 # re-increment document-topic matrix with new topic assignment for token w.
+      wt[t1,wid] <- wt[t1,wid]+1 #re-increment word-topic matrix with new topic assignment for token w.
+      
+      theta[,,i] <- (dt+alpha) / rowSums(dt+alpha) # topic probabilities per document
+      phi[,,i] <- (wt + eta) / (rowSums(wt+eta)) # topic probabilities per word
+      
+    
+      if(t0!=t1) print(paste0('doc:', d, ' token:' ,w, ' topic:',t0,'=>',t1)) # examine when topic assignments change
+    }
+  }
+}
+proc.time()-t
+```
+
+
+```{r}
+alpha <- .1 # hyperparameter. single value indicates symmetric dirichlet prior. higher=>scatters document clusters
+alpha2 <- rep(alpha,K)
+loglike <- array(0,iterations)
+for(i in 1:iterations){ # for each pass through the corpus
+  loglike[i] <- 0
+  for(d in 1:length(docs)){ # for each document
+    for(w in 1:length(docs[[d]])){ # for each token 
+      
+    loglike[i] <- loglike[i]+log(phi[t1,wid,i]) #error de la suma, en la parte final hay que dejarla
+      
+    }
+  }
+}
+```
+
+
+
+
+```{r}
+loglike2=data.frame(iter=seq(1,nrow(loglike)),loglike)
+loglike2=loglike2[-1,]
+ggplot(loglike2, aes(x=iter, y=loglike,)) + geom_line()
+```
+
+
+
+
+##Theta
+```{r}
+#Creación de dataframe con medias de theta de cada cliente por cada motivación, desde la iteración 7000 a 10000
+
+dataTheta <- c(1:NumBol)
+dataTheta <- as.data.frame(dataTheta)
+dataTheta <- cbind(dataTheta, K1=c(0), K2=c(0),K3=c(0),K4=c(0),K5=c(0),K6=c(0),K7=c(0),K8=c(0),K9=c(0),K10=c(0),K11=c(0),K12=c(0),K13=c(0),K14=c(0))
+
+for(i in 1:NumBol){
+  for(d in 1:14){
+      mean <- mean(theta[i,d,7000:10000])
+      dataTheta[i,d+1] <- mean
+    
+  }
+}
+```
+
+
+##Phi
+```{r}
+#Creación de dataframe con medias de theta de cada cliente por cada motivación, desde la iteración 7000 a 10000
+
+dataPhi <- c(1:NumProd)
+dataPhi <- as.data.frame(dataPhi)
+dataPhi <- cbind(dataPhi, K1=c(0), K2=c(0),K3=c(0),K4=c(0),K5=c(0),K6=c(0),K7=c(0),K8=c(0),K9=c(0),K10=c(0),K11=c(0),K12=c(0),K13=c(0),K14=c(0))
+
+for(i in 1:NumProd){
+  for(d in 1:14){
+      mean <- mean(phi[d,i,7000:10000])
+      dataPhi[i,d+1] <- mean
+    
+  }
+}
+row.names(dataPhi) <- vocab #cambia indices a nombres de productos
+
+dataPhi <- cbind(dataPhi,vocab) #agrega una columna al final para luego generar lso grupos
+
+dataPhi <- select(dataPhi, -dataPhi)
+
+
+```
+
+
+
+```{r}
+ThetaXBol <- cbind(t,data[,2:15])
+```
+
+```{r}
+dim(theta)
+```
+
+
+#Gráficos
+
+##lineal
+```{r}
+#gráfico con serie de tiempo
+
+thetax=data.frame(iter=seq(1,10000),theta = theta[6,5,])
+
+ggplot(thetax, aes(x=iter, y=theta)) + geom_line()
+```
+
+##Theta sin outlayers
+```{r}
+#Saca los puntos que pueden manchar el gráfico final (Theta)
+
+for(i in 1:14){
+  for(d in 1:400){
+
+b <- theta[d,i,]
+b <- as.data.frame(b)
+
+a <- boxplot(b, plot = FALSE)
+
+b<-b[!(b$b %in% a$out),]
+
+plot(b,
+     xlab = "Iteración",
+     ylab = paste("theta[", i , ",", d,"]"))
+  }
+}
+```
+
+##phi sin outlayers
+```{r}
+#Saca los puntos que pueden manchar el gráfico final (phi)
+for(i in 1:14){
+  for(d in 1:243){
+
+b <- phi[i,d,]
+b <- as.data.frame(b)
+
+a <- boxplot(b, plot = FALSE)
+
+b<-b[!(b$b %in% a$out),]
+
+plot(b,
+     xlab = "Iteración",
+     ylab = paste("phi[", i , ",", d,"]"))
+  }
+}
+```
+
+
+##Theta Normal
+```{r}
+#Gráficos sin sacar outlayers (Theta)
+
+for(i in 1:14){
+  for(d in 1:400){
+     plot(theta[d,i,],
+          xlab = "Iteración",
+          ylab = paste("theta[", i , ",", d,"]"))
+  }
+}
+```
+
+##Phi normal
+```{r}
+#Gráficos sin sacar outlayers (phi)
+
+for(i in 1:14){
+  for(d in 1:243){
+     plot(phi[i,d,],
+          xlab = "Iteración",
+          ylab = paste("phi[", i , ",", d,"]"))
+  }
+}
+```
+
+
+
+
+
+
+
+```{r}
+#PBolManual <- rename(PBolManual, c("Conservas" = "V1", "Desayuno" = "V2" , "Bano" = "V3", "Comida Saludable" = "V4" , "Preparados" = "V5", "Cita" = "V6", "Despensa" = "V7", "Aperitivo" = "V8", "Fast Food" = "V9", "Cocina" = "V10", "Carrete" = "V11", "Colación" = "V12", "Compras rapidas" = "V13", "Hogar" = "V14"))
+```
+
+```{r}
+#PBolManual <- as.data.frame(t(PBolManual))
+```
+
+
+
+
+
+
+
+
+#Generador de grupos
+
+
+
+```{r}
+#Creación de arrays vacíos para luego llenarlos con los nombres de los productos
+G1 <- c()
+G2 <- c()
+G3 <- c()
+G4 <- c()
+G5 <- c()
+G6 <- c()
+G7 <- c()
+G8 <- c()
+G9 <- c()
+G10 <- c()
+G11 <- c()
+G12 <- c()
+G13 <- c()
+G14 <- c()
+
+#for de llenado
+for(i in 1:nrow(dataPhi)){ # for each pass through the corpus
+  if(max(dataPhi[i,1:14]) == dataPhi[i,1]){
+    G1 <- c(G1, dataPhi[i,15]) #nombre
+  }
+  else if(max(dataPhi[i,1:14]) == dataPhi[i,2]){
+    G2 <- c(G2, dataPhi[i,15])
+  }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,3]){
+    G3 <- c(G3, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,4]){
+    G4 <- c(G4, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,5]){
+    G5 <- c(G5, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,6]){
+    G6 <- c(G6, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,7]){
+    G7 <- c(G7, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,8]){
+    G8 <- c(G8, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,9]){
+    G9 <- c(G9, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,10]){
+    G10 <- c(G10, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,11]){
+    G11 <- c(G11, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,12]){
+    G12 <- c(G12, dataPhi[i,15])
+    }
+    else if(max(dataPhi[i,1:14]) == dataPhi[i,13]){
+    G13 <- c(G13, dataPhi[i,15])
+    }
+    else{
+    G14 <- c(G14, dataPhi[i,15])
+    }
+}
+```
+
+
+```{r}
+G1 #Ninos
+```
+
+```{r}
+G2 #Despensa
+```
+
+```{r}
+G3 #Aperitivo
+```
+
+```{r}
+G4 #Desayuno
+```
+
+```{r}
+G5 #Preparados
+```
+
+```{r}
+G6 #Almuerzo
+```
+
+```{r}
+G7 #Freezer
+```
+
+```{r}
+G8 #Americano
+```
+
+```{r}
+G9 #Reposición
+```
+
+```{r}
+G10 #Tentempie
+```
+
+```{r}
+G11 #Baño
+```
+
+```{r}
+G12 #Enfermo
+```
+
+```{r}
+G13 #Cita
+```
+
+```{r}
+G14 #Hogar
+```
+
+
+```{r}
+dataPhi <- rename(dataPhi, c("Ninos" = "K1", "Despensa" = "K2" , "Aperitivo" = "K3", "Desayuno" = "K4" , "Preparados" = "K5", "Almuerzo" = "K6", "Freezer" = "K7", "Americano" = "K8", "Reposición" = "K9", "Tentempie" = "K10", "Baño" = "K11", "Enfermo" = "K12", "Cita" = "K13", "Hogar" = "K14"))
+```
+
+
+
+#Save
+
+
+```{r}
+save.image(file = "LDAManualCorrido6M46Cli.RData")
+```
