@@ -1,0 +1,605 @@
+---
+title: "hLDAstan"
+author: "Vicho"
+date: "24-06-2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(arules)
+library(tm)
+library(tidyverse)
+library(tidytext)
+library(stringr)
+library(car)
+library(slam)
+library(dplyr)
+library(data.table)
+```
+
+
+
+```{r}
+library(rstan)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+```{r}
+options(scipen=999)
+```
+
+```{r}
+#load("HLDAStanCorrido.RData")
+```
+
+```{r}
+Datos <- fread("MatrixFinal6m46cli.csv")
+```
+
+```{r}
+colnames(Datos)[1] = "household_key"
+```
+
+
+```{r}
+Datos <- merge(Datos, Data, by = "household_key")
+```
+
+```{r}
+length(unique(Datos$Boleta))
+```
+
+
+```{r}
+#se guarda solo la boleta y los productos que se compraron en cada boleta
+trans <- ddply(Datos,c("Boleta"),
+               function(df1)paste(df1$Categoria,
+                                  collapse = ","))
+```
+
+
+
+```{r}
+document <- c(1:length(unique(trans$Boleta)))
+trans <- cbind(trans, document)
+```
+
+
+```{r}
+transDoc <- trans
+transDoc <- merge(trans, Datos, by = "Boleta")
+transDoc <- transDoc %>% group_by(Boleta) %>% slice(1)
+transDoc <- transDoc[,2:84]
+```
+
+
+```{r}
+trans <- select(trans, V1)
+colnames(trans) <- c("items")
+```
+
+
+
+```{r}
+set.seed(1)
+trans <- sample_n(trans, size = 20)
+
+```
+
+```{r}
+set.seed(1)
+transDoc <- sample_n(transDoc, size = 20)
+
+transDoc$document <- c(1:20)
+
+
+```
+
+
+```{r}
+#guarda el archivo como csv
+write.csv(trans,"PruebaHLDA.csv", quote = FALSE, row.names = FALSE)
+```
+
+
+
+```{r}
+###### PARA LEER LA TABLA CON LDA
+tr <- read.transactions('PruebaHLDA.csv', format = 'basket', sep=',', header = TRUE)
+```
+
+
+
+#Muestra
+
+
+```{r}
+#Poner los datos en matrix
+
+t <- as(tr, "matrix") #Commodity en las columnas con su respectiva fila "True, False"
+t <- 1*t #si es "True" = 1, otro caso 0
+dim(t)
+```
+
+
+```{r}
+set.seed(1)
+#t_sample <- t[sample(nrow(t), 100),]
+
+dtm <- as.DocumentTermMatrix(t, weighting = weightTf)
+
+#ind <- row_sums(dtm) == 0 #quitar documentos sin items
+#dtm <- dtm[!ind,]
+
+```
+
+
+```{r}
+ap_t1 <- tidy(dtm)
+ap_t1 
+```
+
+
+```{r}
+ap_t1 <- merge(ap_t1, transDoc, by = "document")
+ap_t1 <- select(ap_t1, document, term, Recency)
+
+```
+
+
+
+```{r}
+#vector <- transDoc$Recency
+#vectoraux <- transDoc$Recency
+
+#for (i in 1:15) {
+#  vector <- cbind(vector,vectoraux)
+#}
+
+```
+
+
+
+#ModeloStan
+
+```{r}
+model2_stan <- "
+data {
+  int<lower=2> K;               // num motivations
+  int<lower=2> V;               // num product categories
+  int<lower=1> M;               // num transactions
+  int<lower=1> N;               // total product instances
+  int<lower=1,upper=V> w[N];    // product n
+  int<lower=1,upper=M> doc[N];  // trx ID for prod n
+  vector<lower=0>[V] beta;      // Product prior
+  int<lower = 1> D;  // num of covariables to predict Alpha
+  matrix[M, D] x; //covariables data for each trx M
+
+}
+parameters {
+
+  //vector<lower=0>[K] alpha;     // Alpha for each trx
+  matrix[D, K] delta;   //importance of variable D in mot K
+  simplex[K] theta[M];   // topic dist for doc m
+  simplex[V] phi[K];     // word dist for topic k
+  real lambda;
+}
+
+transformed parameters {
+vector<lower=0>[K] alpha[M];     // Alpha for each trx
+matrix[M, K] x_delta = x * delta;
+for (m in 1:M)
+    //  for (k in 1:K)
+    //    alpha[m,k] = lambda*inv_logit(x_delta[m,k]);;
+    alpha[m] = lambda*softmax(x_delta[m]');
+}
+
+
+model {
+ lambda  ~ uniform(0.1,15);
+for (k in 1:K)
+   delta[,k] ~ normal(0,5);
+//for (k in 1:K)
+//  alpha[k] ~ uniform(0,2); 
+  for (k in 1:K)
+    phi[k] ~ dirichlet(beta);     // prior
+  for (m in 1:M)
+    theta[m] ~ dirichlet(alpha[m]);  // prior
+  for (n in 1:N) {
+    real gamma[K];
+    for (k in 1:K)
+      gamma[k] = log(theta[doc[n], k]) + log(phi[k, w[n]]);
+    target += log_sum_exp(gamma);  // likelihood;
+  }
+}
+
+generated quantities {
+  vector[N] log_lik;
+   for (n in 1:N) {
+     real gamma[K];
+  for (k in 1:K) {
+    gamma[k] = log(theta[doc[n], k]) + log(phi[k, w[n]]);
+    log_lik[n] = log_sum_exp(gamma);
+  }
+}
+}"
+```
+
+
+
+
+
+```{r}
+model1 <- stan_model(model_code = model2_stan)
+
+```
+
+
+```{r}
+prueba <- select(ap_t1, document, term, Recency)
+prueba
+```
+
+
+
+
+```{r}
+#Cambio de variables a numeros
+
+#term
+## Assign WordIDs to each unique word
+vocab <- unique(unlist(prueba$term))
+## Replace words in documents with wordIDs
+for(i in 1:length(prueba$term)) prueba$term[[i]] <- match(prueba$term[[i]], vocab)
+
+prueba$term <- as.integer(prueba$term)
+```
+
+
+
+```{r}
+Vector1 <- transDoc$Recency
+Vector2 <- transDoc$NuTrx
+Vectores <- cbind(Vector1, Vector2)
+```
+
+
+```{r}
+stan.data <- list(K=2, 
+                 V=length(unique(prueba$term)), 
+                 M=max(prueba$document), 
+                 N=nrow(prueba),
+                 w=prueba$term, 
+                 doc=prueba$document, 
+                 #alpha=rep(0.1,2), 
+                 beta=rep(0.1,max(prueba$term)),
+                 D=2,
+                 x=Vectores)
+
+```
+
+
+```{r}
+model1_fit <- sampling(object=model1, 
+                       data=stan.data, 
+                       chains = 2, 
+                       iter = 5000,
+                       warmup = 1000)
+
+```
+
+
+
+```{r}
+model1_fit
+```
+
+
+```{r}
+summary(model1_fit, pars = "delta")
+```
+
+```{r}
+#Generar los datos en un dataframe
+#output2=as.data.frame(summary(model1_fit)[[1]])
+```
+
+
+```{r}
+#output2=as.data.frame(summary(model1_fit)[[1]])# tabla resumen por cadena
+#out=output2[,grepl("mean", names(output2))]
+#out_theta=out[grep("theta",rownames(out)),]
+#out_phi2=out[grep("phi",rownames(out)),]
+```
+
+```{r}
+thetaStan=matrix(data=summary(model1_fit, pars ="theta")$summary[,1],20,2, byrow= TRUE)
+phiStan=matrix(data=summary(model1_fit, pars ="phi")$summary[,1],243,14)
+rownames(phiStan)=vocab
+```
+
+
+```{r}
+phiStan <- as.data.frame(phiStan)
+```
+
+
+```{r}
+summary(phiStan$x)
+```
+
+```{r}
+x <-c(rownames(phiStan))
+```
+
+```{r}
+phiStan <- cbind(phiStan,x)
+```
+
+
+
+```{r}
+#phi1 <- t(phi1)
+#phi1 <- as.data.frame(phi1)
+```
+
+
+
+
+```{r}
+rownames(phiStan)[i]
+```
+
+
+```{r}
+phiStan$V1 <- as.numeric(phiStan$V1)
+phiStan$V2 <- as.numeric(phiStan$V2)
+phiStan$V3 <- as.numeric(phiStan$V3)
+phiStan$V4 <- as.numeric(phiStan$V4)
+phiStan$V5 <- as.numeric(phiStan$V5)
+phiStan$V6 <- as.numeric(phiStan$V6)
+phiStan$V7 <- as.numeric(phiStan$V7)
+phiStan$V8 <- as.numeric(phiStan$V8)
+phiStan$V9 <- as.numeric(phiStan$V9)
+phiStan$V10 <- as.numeric(phiStan$V10)
+phiStan$V11 <- as.numeric(phiStan$V11)
+phiStan$V12 <- as.numeric(phiStan$V12)
+phiStan$V13 <- as.numeric(phiStan$V13)
+phiStan$V14 <- as.numeric(phiStan$V14)
+```
+
+
+
+
+```{r}
+
+G1S <- c()
+G2S <- c()
+G3S <- c()
+G4S <- c()
+G5S <- c()
+G6S <- c()
+G7S <- c()
+G8S <- c()
+G9S <- c()
+G10S <- c()
+G11S <- c()
+G12S <- c()
+G13S <- c()
+G14S <- c()
+
+
+for(i in 1:nrow(phiStan)){ # for each pass through the corpus
+  if(max(phiStan[i,1:14]) == phiStan[i,1]){
+    G1S <- c(G1S, rownames(phiStan)[i]) #nombre
+  }
+  else if(max(phiStan[i,1:14]) == phiStan[i,2]){
+    G2S <- c(G2S, rownames(phiStan)[i])
+  }
+    else if(max(phiStan[i,1:14]) == phiStan[i,3]){
+    G3S <- c(G3S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,4]){
+    G4S <- c(G4S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,5]){
+    G5S <- c(G5S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,6]){
+    G6S <- c(G6S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,7]){
+    G7S <- c(G7S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,8]){
+    G8S <- c(G8S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,9]){
+    G9S <- c(G9S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,10]){
+    G10S <- c(G10S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,11]){
+    G11S <- c(G11S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,12]){
+    G12S <- c(G12S, rownames(phiStan)[i])
+    }
+    else if(max(phiStan[i,1:14]) == phiStan[i,13]){
+    G13S <- c(G13S, rownames(phiStan)[i])
+    }
+    else{
+    G14S <- c(G14S, rownames(phiStan)[i])
+    }
+}
+```
+
+
+```{r}
+G1S #Desayuno
+```
+
+```{r}
+G2S #Fiestas Navidenas
+```
+
+```{r}
+G3S #Almuerzo
+```
+
+```{r}
+G4S #Soltero
+```
+
+```{r}
+G5S #
+```
+
+```{r}
+G6S #Congelados
+```
+
+```{r}
+G7S #Familia
+```
+
+```{r}
+G8S #Tacos
+```
+
+```{r}
+G9S #
+```
+
+```{r}
+G10S #Dulcesitos
+```
+
+```{r}
+G11S #Antojos
+```
+
+```{r}
+G12S #Cocina
+```
+
+```{r}
+G13S #
+```
+
+```{r}
+G14S #Aperitivo
+```
+
+```{r}
+phiStan <- rename(phiStan, c("Desayuno" = "V1", "Fiestas Navidenas" = "V2" , "Almuerzo" = "V3", "Soltero" = "V4" , "Revisar" = "V5", "Congelados" = "V6", "Familia" = "V7", "Tacos" = "V8", "Revisar2" = "V9", "Dulcesitos" = "V10", "Antojos" = "V11", "Cocina" = "V12", "Revisar3" = "V13", "Aperitivo" = "V14"))
+```
+
+
+
+```{r}
+PStanBol <- colMeans(thetaStan)
+PStanBol <- as.data.frame(PStanBol)
+PStanBol <- t(PStanBol)
+PStanBol <- as.data.frame(PStanBol)
+```
+
+
+```{r}
+PStanBol <- rename(PStanBol, c("Desayuno" = "V1", "Fiestas Navidenas" = "V2" , "Almuerzo" = "V3", "Soltero" = "V4" , "Revisar" = "V5", "Congelados" = "V6", "Familia" = "V7", "Tacos" = "V8", "Revisar2" = "V9", "Dulcesitos" = "V10", "Antojos" = "V11", "Cocina" = "V12", "Revisar3" = "V13", "Aperitivo" = "V14"))
+```
+
+```{r}
+PStanBol <- as.data.frame(t(PStanBol))
+```
+
+
+#Save
+
+
+```{r}
+save(tr, tr_sample, tr_list,ap_t1, dtm, model1, model1_fit, phiStan, prueba, stan.data, thetaStan, vocab,file = "LDAStanCorrido.RData")
+```
+
+
+```{r}
+save.image(file = "HLDAStanCorrido.RData")
+```
+
+
+
+```{r}
+load("TodoCorrido.RData")
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+#Grabar los rhat con distintas cantidad de trx
+```
+
+
+
+```{r}
+traceplot(model1_fit,
+          pars = "phi[1,2]",
+          inc_warmup = TRUE)
+```
+
+
+
+
+
+
+
+```{r}
+
+
+#theta 4,1 es un buen grafico
+#Hacer un tutorial de analisis bayesiano o regresion bayesiana
+#hay que imponer en el rstan una restriccion que se va a vincular con el papper
+#Interpretar las 2 motivaciones 
+#Como definir el numero optimo de motivaciones (K)
+#Volver a correr el modelo, 
+```
+
+
+```{r}
+
+#Tomar 1 si o si, 5 a 10 cleintes al azar y tomar todas sus boletas (Listo)
+#interpretar out, los coef estimados la cadena converge, 
+#leer manual de stan, modelos bayesianos
+
+#traceplot de las cadenas
+#El traceplot es un enfoque visual para ver si la cadena converge
+
+#Diagnostigo a los coef, estimar rhat
+
+
+#significancia del teta y phi, colocar un nombre a cada motivaciÃÂÃÂ³n.
+#El	hiperparÃÂÃÂ¡metro theta guarda relaciÃÂÃÂ³n con la probabilidad por documento de pertenecer a un tÃÂÃÂ³pico
+#la probabilidad de una boleta de pertenecer a un topico/motivaciÃÂÃÂ³n
+
+#El HiperparÃÂÃÂ¡metro phi guarda relaciÃÂÃÂ³n con la probabilidad de la palabra de pertenecer al tÃÂÃÂ³pico
+#la probabilidad del COMMODITY_DESC pertenecer al tÃÂÃÂ³pico
+
+
+
+
+#http://brooksandrew.github.io/simpleblog/articles/latent-dirichlet-allocation-under-the-hood/
+#correr esto tambien
+
+#ejemplos regresiones lineales con stan comparar con el que tengo
+```
