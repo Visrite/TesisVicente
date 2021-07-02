@@ -1,0 +1,201 @@
+---
+title: "LDA3"
+author: "Vicho"
+date: "06-05-2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(arules)
+library(ldatuning)
+library(topicmodels)
+library(tm)
+library(slam)
+library(knitr)
+library(ggplot2)
+```
+
+
+
+
+```{r}
+###### PARA LEER LA TABLA CON LDA
+tr <- read.transactions('canastasBoletas.csv', format = 'basket', sep=',', header = TRUE)
+tr
+summary(tr)
+
+```
+
+
+
+#Muestra
+```{r}
+#muestra de 10000 transacciones, de un total de 89949
+set.seed(1)
+tr_sample <- tr[sample(length(tr), 1000)]
+
+#muestra como lista (para lda)
+tr_list <- as(tr_sample, "list")
+
+#para lda
+docs <- tr_list #en lda la lista de transacciones corresponderÃÂ­a a los documentos
+#docs <- docs
+#print(docs)
+#save(docs,file="docs_10.Rdata")
+```
+
+
+#FindTopicModel
+
+
+```{r}
+#Poner los datos en matrix
+
+t <- as(tr, "matrix") #Commodity en las columnas con su respectiva fila "True, False"
+t <- 1*t #si es "True" = 1, otro caso 0
+dim(t)
+```
+```{r}
+set.seed(1)
+t_sample <- t[sample(nrow(t), 1000),]
+
+dtm <- as.DocumentTermMatrix(t_sample, weighting = weightTf)
+
+ind <- row_sums(dtm) == 0 #quitar documentos sin items, son 212
+dtm <- dtm[!ind,]
+
+```
+
+```{r}
+freq <- col_sums(dtm) #se suman las columnas
+
+freq <- freq[order(freq, decreasing = TRUE)] #se ordenan de mayor a menor (los productos populares quedan primero)
+
+term_count_table <-
+  data.frame(
+    Commodity_desc = names(freq),
+    Count = unname(freq)
+  )
+kable(term_count_table[1:25,]) 
+
+```
+
+
+```{r}
+# codigo sacado de https://rpubs.com/MNidhi/NumberoftopicsLDA
+
+result <- FindTopicsNumber(
+  dtm,
+  topics = c(2:20),
+  metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 1),
+  mc.cores = 4L,
+  verbose = TRUE
+)
+
+FindTopicsNumber_plot(result)
+
+topic_num <-
+  result$topics[min(which.min(result$CaoJuan2009),
+                    which.min(result$Arun2010),
+                    which.max(result$Griffiths2004),
+                    which.max(result$Deveaud2014))]
+
+print(paste("The optimum number of topics for the data set is ",topic_num))
+
+```
+
+
+```{r}
+#Codigo sacado de https://rpubs.com/MNidhi/NumberoftopicsLDA
+
+sampling <- sample(1:nrow(dtm), replace = FALSE,size = nrow(dtm)*0.8 )
+
+#Separación de la data en entrenamiento y prueba
+train_data <- dtm[sampling,]
+test_data <- dtm[-sampling,]
+
+
+#perplexity con set de testeo
+perplexity_df <- data.frame(train=numeric(), test=numeric())
+topics <- c(2:100)
+burnin = 100 #numero de iteraciones que se descartan del conteo de asignaciones
+iter = 1000 #numero de iteraciones sobre el set de datos
+keep = 50 #log likelihood se guardara cada 50 iteraciones
+
+#set.seed(12345)
+for (i in topics){
+  fitted <- LDA(train_data, k = i, method = "Gibbs",
+                control = list(burnin = burnin, iter = iter, keep = keep) )
+  perplexity_df[i,1] <- perplexity(fitted, newdata = train_data)
+  perplexity_df[i,2]  <- perplexity(fitted, newdata = test_data) 
+}
+
+
+#plot del set de testeo y de entrenamiento
+
+g <- ggplot(data=perplexity_df, aes(x= as.numeric(row.names(perplexity_df)))) + labs(y="Perplexity",x="Number of topics") + ggtitle("Perplexity of hold out and training data")
+
+g <- g + geom_line(aes(y=test), colour="red") #rojo es el set de testeo
+g <- g + geom_line(aes(y=train), colour="green") #verde el de entrenamiento
+g
+
+#investigar el erro que arooja
+```
+
+
+
+
+
+```{r}
+#perplexity con set de testeo
+perplexity_df <- data.frame(train=numeric(), test=numeric())
+topics <- c(2:50)
+burnin = 100 #numero de iteraciones que se descartan del conteo de asignaciones
+iter = 1000 #numero de iteraciones sobre el set de datos
+keep = 50 #log likelihood se guardara cada 50 iteraciones
+
+#set.seed(12345)
+for (i in topics){
+  fitted <- LDA(train_data, k = i, method = "Gibbs",
+                control = list(burnin = burnin, iter = iter, keep = keep) )
+  perplexity_df[i,1] <- perplexity(fitted, newdata = train_data)
+  perplexity_df[i,2]  <- perplexity(fitted, newdata = test_data) 
+}
+
+
+#plot del set de testeo y de entrenamiento
+
+g <- ggplot(data=perplexity_df, aes(x= as.numeric(row.names(perplexity_df)))) + labs(y="Perplexity",x="Number of topics") + ggtitle("Perplexity of hold out and training data")
+
+g <- g + geom_line(aes(y=test), colour="red") #rojo es el set de testeo
+g <- g + geom_line(aes(y=train), colour="green") #verde el de entrenamiento
+g
+
+```
+
+
+```{r}
+perplexity_df
+```
+
+
+```{r}
+#correr ppxy 1000 trx y 100 topicos
+#Notar que con 10000trx el k ideal sería 46 
+```
+
+
+
+```{r}
+
+#Ver regrión linear bayesiana (importante)
+#Crinterios de información, (aic, sbc)  k=14, identificar y poner un nombre(etiqueta) thetas. 10000 trx
+```
+
