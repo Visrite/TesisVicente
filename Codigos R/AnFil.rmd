@@ -1,0 +1,642 @@
+---
+title: "AnFil"
+author: "Vicho"
+date: "22-04-2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(scales)
+library(dplyr)
+library(processx)
+library(rstan)
+library(gdata)
+library(bayesplot)
+library(tm)
+#library(plyr)
+library(arules)
+library(tidyverse)
+```
+
+
+
+```{r}
+#Lectura de data
+product <- fread("product.csv")
+demogra <- fread("hh_demographic.csv")
+trx <- fread("transaction_data.csv")
+```
+
+
+
+```{r}
+#Unión de data
+Entera <- merge (product, trx, by = "PRODUCT_ID")
+Entera <- merge(Entera, demogra, by = "household_key")
+Entera
+```
+
+
+
+
+```{r}
+summary(Entera)
+```
+
+
+```{r}
+#Con los duplicados
+
+ComBas1 <- group_by(Entera, BASKET_ID) %>% tally() 
+ComBas1
+```
+
+#Histograma, número de productos (comodity description) que hay en una boleta, promedio media
+
+
+```{r}
+#Histograma y BoxPlot de N° de productos que hay en una boleta
+hist(ComBas1$n,
+     breaks = 50 ,
+     col = "darkgray",
+     border = "gray10",
+     main = "Cantidad de productos por boleta",
+     xlab = 'Productos',
+     ylab = 'Frecuencia',
+     xlim = c(0,100),
+     ylim = c(0,160000),
+     labels = T)
+summary(ComBas1$n)
+Atipicos1 <- boxplot(ComBas1$n)
+#Atipicos1$out
+length(Atipicos1$out)
+```
+
+
+
+#Contar para cada categoría cuántos clientes distintos hay, ordenar de mayor a menor clientes le gustan un subconjunto de categoría
+
+
+```{r}
+Entera
+```
+
+
+```{r}
+#Selección de columnas a estudiar
+BolCli  <- select(Entera, COMMODITY_DESC, household_key)
+
+#Eliminaación de duplicados
+BolCli <- BolCli[!duplicated(BolCli)]
+
+BolCli
+```
+
+
+
+
+```{r}
+#Se cuenta cuantas veces se repite un dato y se elimina la primera fila ya que son datos en blanco
+BolCli <- group_by(BolCli, COMMODITY_DESC) %>% tally()
+BolCli <- BolCli[-1,]
+Data2 <- group_by(Entera, COMMODITY_DESC) %>% tally()
+Data2 <- Data2[-1,]
+Data2
+BolCli
+```
+
+
+
+
+```{r}
+arrange(Data2, desc(n))
+arrange(BolCli, desc(n))
+```
+
+```{r}
+Atipico <- boxplot(BolCli$n)
+Atipico$out
+length(Atipico$out)
+Atipicos2 <- boxplot(Data2$n)
+Atipicos2$out
+length(Atipicos2$out)
+```
+
+
+
+
+#Contar clientes cuantas categorías distintas compra
+
+
+```{r}
+Data3 <- select(Entera, COMMODITY_DESC, household_key)
+Data3
+```
+
+```{r}
+#Borrar duplicados, no sirve que el cliente tenga la misma categoría dos veces 
+Data3 <- Data3[!duplicated(Data3)]
+Data3
+```
+
+```{r}
+Data3 <- group_by(Data3, household_key) %>% tally()
+#Data3 <- Data3[-1,]
+Data3
+summary(Data3$n)
+```
+
+```{r}
+plot(x = Data3$household_key,
+     y = Data3$n,
+     main = "Categorías que compra cada cliente",
+     xlab = 'Cliente',
+     ylab = 'Categorías')
+hist(Data3$n,
+     #breaks = 50 ,
+     col = "darkgray",
+     border = "gray10",
+     main = "Cantidad de categorías por cliente",
+     xlab = 'Categorías',
+     ylab = 'Clientes',
+     #xlim = c(0,100),
+     #ylim = c(0,150000),
+     #labels = T
+     )
+Atipicos3 <- boxplot(Data3$n,
+                     main = "Boxplot cantidad de productos distintos")
+Atipicos3$out
+length(Atipicos3$out)
+```
+
+
+
+
+
+#Graficar número de boletas distintas que tiene cada cliente
+
+
+
+```{r}
+BolCli2  <- select(trx, -QUANTITY, -PRODUCT_ID, -DAY, -QUANTITY, -SALES_VALUE, -STORE_ID, -RETAIL_DISC, -TRANS_TIME, -WEEK_NO, -COUPON_DISC, -COUPON_MATCH_DISC)
+```
+
+```{r}
+BolCli2 <- BolCli2[!duplicated(BolCli2)]
+BolCli2
+```
+
+
+
+```{r}
+BolCli3 <- group_by(BolCli2, household_key) %>% tally() 
+BolCli3
+```
+
+
+```{r}
+plot(x = BolCli3$household_key, 
+     y = BolCli3$n,
+     xlab = 'ClienteID',
+     ylab = 'N° de boletas')
+Atipicos4 <- boxplot(BolCli3$n,
+                     main = "Cantidad de boletas")
+Atipicos4$out
+
+length(Atipicos4$out)
+
+summary(BolCli3$n)
+```
+
+```{r}
+hist(BolCli3$n,
+     #breaks = 50 ,
+     col = "darkgray",
+     border = "gray10",
+     main = "Cantidad de boletas por cliente",
+     xlab = 'Número de Boletas',
+     ylab = 'Clientes',
+     #xlim = c(0,100),
+     #ylim = c(0,150000),
+     #labels = T
+     )
+summary(BolCli3$n)
+
+```
+
+Boxplot para eliminar outlayers
+
+
+```{r}
+#Boxplot para eliminar outlayers
+BolCli3<-BolCli3[!(BolCli3$n %in% Atipicos4$out),]
+boxplot(BolCli3$n)
+summary(BolCli3)
+```
+
+
+
+```{r}
+#Unión de data
+NewEntera <- merge(Entera, BolCli3, by = "household_key")
+```
+
+
+```{r}
+NewEntera <- select(NewEntera, -n)
+```
+
+
+#Número de boletas distintas que hay para cada categoría
+
+
+```{r}
+Data6 <- select(NewEntera, COMMODITY_DESC, BASKET_ID)
+Data6
+```
+
+
+```{r}
+Data6 <- Data6[!duplicated(Data6)]
+Data6
+```
+
+```{r}
+Data6 <- group_by(Data6, COMMODITY_DESC) %>% tally() 
+Data6 <- Data6[-1,]
+Data6
+```
+
+```{r}
+#Orden ascendente y descendente
+#arrange(Data6, n)
+#arrange(Data6, desc(n)
+```
+
+
+
+```{r}
+#Se quedan las categorias que se compran más de 5 veces
+Data6 <- filter(Data6, n>5)
+Data6
+```
+
+
+```{r}
+asd <- boxplot(Data6$n)
+asd$out
+summary(Data6$n)
+```
+
+
+
+```{r}
+NewEntera <- merge(NewEntera, Data6, by = "COMMODITY_DESC")
+NewEntera <- select(NewEntera, -n)
+```
+
+
+```{r}
+#Eliminación de cupones
+
+NewEntera <- NewEntera[!NewEntera$COMMODITY_DESC == "COUPON", ]
+NewEntera <- NewEntera[!NewEntera$COMMODITY_DESC == "COUPON/MISC ITEMS", ]
+NewEntera <- NewEntera[!NewEntera$COMMODITY_DESC == "COUPONS/STORE & MFG", ]
+
+NewEntera
+
+```
+
+
+Ctegorías boxplot para outlayers
+
+Limpiar la base de datos 2 de clientes y 1 productos
+Join del monto gastado, dos valores, cuanta plata gasta en la boleta y cuantos commodity_desc(no tomar los mismo) casados compran más que solteros
+analisis desc
+explicar lda
+Codigo de LDA en STAN
+
+
+Análisis de NewEntera
+
+
+
+
+
+
+
+
+#Prod.Distintos por boleta
+
+```{r}
+BoletasJuntas <- NewEntera %>% group_by(BASKET_ID) %>% 
+  summarise(TotalBoleta = sum(SALES_VALUE), MediaBoleta = mean(SALES_VALUE),ProducDis = n_distinct(COMMODITY_DESC), ProducTotal = n())
+BoletasJuntas
+```
+
+```{r}
+summary(BoletasJuntas$ProducDis)
+```
+
+
+
+
+```{r}
+Junta <- NewEntera %>% group_by(BASKET_ID) %>% slice(1)
+Junta <- merge(BoletasJuntas, Junta, by = 'BASKET_ID')
+Junta <- select(Junta, BASKET_ID, TotalBoleta, MediaBoleta, ProducDis, ProducTotal, household_key, AGE_DESC, MARITAL_STATUS_CODE, INCOME_DESC, HOMEOWNER_DESC, HH_COMP_DESC, HOUSEHOLD_SIZE_DESC)
+Junta
+```
+
+
+
+```{r}
+#Revisar la data
+#Hacer tabla resumen (Listo)
+#agregar el porcentaje de personas hay en cada uno de los datos para cada grupo (Listo)
+#porcentaje de boletas de cada grupo del total ()
+#Para cada categoría demogra, Cuantas cat en promedio tiene la boleta de ese grupo y cuanto vale el promedio de la boleta. #Media de los productos por categoría
+```
+```{r}
+length(Junta$MARITAL_STATUS_CODE)
+```
+
+
+#EstadoCivil
+
+
+```{r}
+
+#A = Casado
+#B = Soltero
+#U = Desconocido
+
+#MediaBoleta = Precio medio de las boletas de su respectiva categoría
+#Desv = Desviación del precio medio 
+#ProducMedia = Media de commodity_desc (sin repetir) por boleta
+#ProducTotalMedia = Media de commodity_desc (con repetir) por boleta
+#CantBoletas = Cantidad de clientes pertenecientes a la categoría
+#CantPersonas = Porcentaje de clientes de la categoría respecto al total de los clientes
+#PorcenBoletas = Porcentaje de Boletas de la categoría respecto al total de los clientes
+#PorcenPersonas = Porcentaje de clientes de la categoría respecto al total de los clientes
+
+
+Grupo <- Junta %>% group_by(MARITAL_STATUS_CODE) %>%
+        summarise(MediaBoletas = mean(TotalBoleta),
+                  Desv = sd(TotalBoleta),
+                  ProducMedia = mean(ProducDis),
+                  DesvProd = sd(ProducDis), #para desv 
+                  CantBoletas = n(),
+                  CantPersonas = n_distinct(household_key),
+                  PorcenBoletas = n()/length(Junta$MARITAL_STATUS_CODE),
+                  PorcenPersonas = n_distinct(household_key)/length(unique(Junta$household_key)),
+                  TicketPP = CantBoletas/CantPersonas)
+
+#Datos a utilziar
+SumaCantB <- sum(Grupo$CantBoletas)   #Suma de la columna Cantidad
+SumaCantP <- sum(Grupo$CantPersonas)  
+SumaPorcB <- sum(Grupo$PorcenBoletas) #Suma de la columna Porcentaje
+SumaPorcP <- sum(Grupo$PorcenPersonas)
+
+#Agregar fila "Total" sacando las medias de cada columna
+Total <- colMeans(Grupo[ ,2:10]) 
+Total <- t(Total)
+dataaux <- data.frame(Total)
+MARITAL_STATUS_CODE <- "Total"
+dataaux2 <- cbind(MARITAL_STATUS_CODE, dataaux)
+Grupo <- rbind(Grupo,dataaux2)
+
+#Cambio de datos 
+Grupo[4,6] <- SumaCantB
+Grupo[4,7] <- SumaCantP
+Grupo[4,8] <- SumaPorcB
+Grupo[4,9] <- SumaPorcP
+Grupo
+
+```
+
+
+
+
+#Edad
+
+
+```{r}
+#Agrupación por edad
+
+
+Grupo2 <- Junta %>% group_by(AGE_DESC) %>%
+        summarise(MediaBoletas = mean(TotalBoleta),
+                  Desv = sd(TotalBoleta),
+                  ProducMedia = mean(ProducDis),
+                  CantBoletas = n(),
+                  CantPersonas = n_distinct(household_key),
+                  PorcenBoletas = n()/length(Junta$AGE_DESC),
+                  PorcenPersonas = n_distinct(household_key)/length(unique(Junta$household_key)),
+                  TicketPP = CantBoletas/CantPersonas)
+
+#Datos a utilziar
+SumaCantB <- sum(Grupo2$CantBoletas)   #Suma de la columna Cantidad
+SumaCantP <- sum(Grupo2$CantPersonas)  
+SumaPorcB <- sum(Grupo2$PorcenBoletas) #Suma de la columna Porcentaje
+SumaPorcP <- sum(Grupo2$PorcenPersonas)
+
+#Agregar fila "Total" sacando las medias de cada columna
+Total <- colMeans(Grupo2[ ,2:9]) 
+Total <- t(Total)
+dataaux <- data.frame(Total)
+AGE_DESC <- "Total"
+dataaux2 <- cbind(AGE_DESC, dataaux)
+Grupo2 <- rbind(Grupo2,dataaux2)
+
+#Cambio de datos 
+Grupo2[7,5] <- SumaCantB
+Grupo2[7,6] <- SumaCantP
+Grupo2[7,7] <- SumaPorcB
+Grupo2[7,8] <- SumaPorcP
+Grupo2
+
+
+
+```
+
+
+
+#IncomeDesc
+
+
+```{r}
+#Agrupación por ingreso familiar
+
+
+Grupo3 <- Junta %>% group_by(INCOME_DESC) %>%
+        summarise(MediaBoletas = mean(TotalBoleta),
+                  Desv = sd(TotalBoleta),
+                  ProducMedia = mean(ProducDis),
+                  CantBoletas = n(),
+                  CantPersonas = n_distinct(household_key),
+                  PorcenBoletas = n()/length(Junta$INCOME_DESC),
+                  PorcenPersonas = n_distinct(household_key)/length(unique(Junta$household_key)),
+                  TicketPP = CantBoletas/CantPersonas)
+
+#Datos a utilziar
+SumaCantB <- sum(Grupo3$CantBoletas)   #Suma de la columna Cantidad
+SumaCantP <- sum(Grupo3$CantPersonas)  
+SumaPorcB <- sum(Grupo3$PorcenBoletas) #Suma de la columna Porcentaje
+SumaPorcP <- sum(Grupo3$PorcenPersonas)
+
+#Agregar fila "Total" sacando las medias de cada columna
+Total <- colMeans(Grupo3[ ,2:9]) 
+Total <- t(Total)
+dataaux <- data.frame(Total)
+INCOME_DESC <- "Total"
+dataaux2 <- cbind(INCOME_DESC, dataaux)
+Grupo3 <- rbind(Grupo3,dataaux2)
+
+#Cambio de datos 
+Grupo3[13,5] <- SumaCantB
+Grupo3[13,6] <- SumaCantP
+Grupo3[13,7] <- SumaPorcB
+Grupo3[13,8] <- SumaPorcP
+
+Grupo3$id = c(7,8,2,9,10,11,3,12,4,5,6,1,13)
+
+arrange(Grupo3, id)
+
+```
+
+
+
+
+#Tamaño de familia
+
+```{r}
+#Agrupación por ingreso familiar
+
+Grupo4 <- Junta %>% group_by(HOUSEHOLD_SIZE_DESC) %>%
+        summarise(MediaBoletas = mean(TotalBoleta),
+                  Desv = sd(TotalBoleta),
+                  ProducMedia = mean(ProducDis),
+                  CantBoletas = n(),
+                  CantPersonas = n_distinct(household_key),
+                  PorcenBoletas = n()/length(Junta$HOUSEHOLD_SIZE_DESC),
+                  PorcenPersonas = n_distinct(household_key)/length(unique(Junta$household_key)),
+                  TicketPP = CantBoletas/CantPersonas)
+
+#Datos a utilziar
+SumaCantB <- sum(Grupo4$CantBoletas)   #Suma de la columna Cantidad
+SumaCantP <- sum(Grupo4$CantPersonas)  
+SumaPorcB <- sum(Grupo4$PorcenBoletas) #Suma de la columna Porcentaje
+SumaPorcP <- sum(Grupo4$PorcenPersonas)
+
+#Agregar fila "Total" sacando las medias de cada columna
+Total <- colMeans(Grupo4[ ,2:9]) 
+Total <- t(Total)
+dataaux <- data.frame(Total)
+HOUSEHOLD_SIZE_DESC <- "Total"
+dataaux2 <- cbind(HOUSEHOLD_SIZE_DESC, dataaux)
+Grupo4 <- rbind(Grupo4,dataaux2)
+
+#Cambio de datos 
+Grupo4[6,5] <- SumaCantB
+Grupo4[6,6] <- SumaCantP
+Grupo4[6,7] <- SumaPorcB
+Grupo4[6,8] <- SumaPorcP
+Grupo4
+
+```
+
+
+
+#Propietario
+
+```{r}
+#Agrupación por propietareo
+
+Grupo5 <- Junta %>% group_by(HOMEOWNER_DESC) %>%
+        summarise(MediaBoletas = mean(TotalBoleta),
+                  Desv = sd(TotalBoleta),
+                  ProducMedia = mean(ProducDis),
+                  CantBoletas = n(),
+                  CantPersonas = n_distinct(household_key),
+                  PorcenBoletas = n()/length(Junta$HOMEOWNER_DESC),
+                  PorcenPersonas = n_distinct(household_key)/length(unique(Junta$household_key)),
+                  TicketPP = CantBoletas/CantPersonas)
+
+#Datos a utilziar
+SumaCantB <- sum(Grupo5$CantBoletas)   #Suma de la columna Cantidad
+SumaCantP <- sum(Grupo5$CantPersonas)  
+SumaPorcB <- sum(Grupo5$PorcenBoletas) #Suma de la columna Porcentaje
+SumaPorcP <- sum(Grupo5$PorcenPersonas)
+
+#Agregar fila "Total" sacando las medias de cada columna
+Total <- colMeans(Grupo5[ ,2:9]) 
+Total <- t(Total)
+dataaux <- data.frame(Total)
+HOMEOWNER_DESC <- "Total"
+dataaux2 <- cbind(HOMEOWNER_DESC, dataaux)
+Grupo5 <- rbind(Grupo5,dataaux2)
+
+#Cambio de datos 
+Grupo5[6,5] <- SumaCantB
+Grupo5[6,6] <- SumaCantP
+Grupo5[6,7] <- SumaPorcB
+Grupo5[6,8] <- SumaPorcP
+Grupo5
+```
+
+
+
+
+#Comp Familiar
+
+```{r}
+#Agrupación por comp familiar
+
+Grupo6 <- Junta %>% group_by(HH_COMP_DESC) %>%
+        summarise(MediaBoletas = mean(TotalBoleta),
+                  Desv = sd(TotalBoleta),
+                  ProducMedia = mean(ProducDis),
+                  CantBoletas = n(),
+                  CantPersonas = n_distinct(household_key),
+                  PorcenBoletas = n()/length(Junta$HH_COMP_DESC),
+                  PorcenPersonas = n_distinct(household_key)/length(unique(Junta$household_key)),
+                  TicketPP = CantBoletas/CantPersonas)
+
+#Datos a utilziar
+SumaCantB <- sum(Grupo6$CantBoletas)   #Suma de la columna Cantidad
+SumaCantP <- sum(Grupo6$CantPersonas)  
+SumaPorcB <- sum(Grupo6$PorcenBoletas) #Suma de la columna Porcentaje
+SumaPorcP <- sum(Grupo6$PorcenPersonas)
+
+#Agregar fila "Total" sacando las medias de cada columna
+Total <- colMeans(Grupo5[ ,2:9]) 
+Total <- t(Total)
+dataaux <- data.frame(Total)
+HH_COMP_DESC <- "Total"
+dataaux2 <- cbind(HH_COMP_DESC, dataaux)
+Grupo6 <- rbind(Grupo6,dataaux2)
+
+#Cambio de datos 
+Grupo6[7,5] <- SumaCantB
+Grupo6[7,6] <- SumaCantP
+Grupo6[7,7] <- SumaPorcB
+Grupo6[7,8] <- SumaPorcP
+Grupo6
+```
+
+
+
+
+```{r}
+#Se exporta la data filtrada para la utilización de otro archivo
+write.csv(NewEntera,"BaseFiltrada.csv", quote = FALSE, row.names = FALSE)
+```
+
+
+
